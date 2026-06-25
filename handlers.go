@@ -13,7 +13,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hello, World!"))
 }
 
-func createShortURLHandler(w http.ResponseWriter, r *http.Request) {
+func (app *App) createShortURLHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	originalURL := r.FormValue("url")
 	if originalURL == "" {
@@ -24,23 +24,37 @@ func createShortURLHandler(w http.ResponseWriter, r *http.Request) {
 	key := shortuuid.New()
 	shortURL := fmt.Sprintf("%s/short/%s", baseURL, key)
 
-	insertMapping(key, originalURL)
+	err := insertMapping(r.Context(), app.db, key, originalURL)
+	if err != nil {
+		http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	log.Printf("Created short URL: %s -> %s", key, originalURL)
 	w.Write([]byte("Created short URL: " + shortURL))
 }
 
-func redirectHandler(w http.ResponseWriter, r *http.Request) {
+func (app *App) redirectHandler(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
 	if key == "" {
 		http.Error(w, "Key is required", http.StatusBadRequest)
 		return
 	}
 
-	url, exists := fetchMapping(key)
+	url, exists, err := fetchMapping(r.Context(), app.db, key)
+	if err != nil {
+		http.Error(w, "Failed to fetch URL", http.StatusInternalServerError)
+		return
+	}
+
 	if !exists {
 		http.Error(w, "URL not found", http.StatusNotFound)
 		return
+	}
+
+	if err := incrementClickCount(r.Context(), app.db, key); err != nil {
+		log.Printf("Failed to increment click count for %s: %v", key, err)
 	}
 
 	http.Redirect(w, r, url, http.StatusFound)

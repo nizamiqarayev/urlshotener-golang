@@ -1,0 +1,7 @@
+CREATE TABLE urls (
+    id BIGSERIAL PRIMARY KEY,
+    short_key TEXT NOT NULL UNIQUE,
+    original_url TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    click_count BIGINT NOT NULL DEFAULT 0
+);

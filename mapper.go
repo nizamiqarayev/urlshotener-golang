@@ -1,32 +1,48 @@
 package main
 
-import "sync"
+import (
+	"context"
+	"errors"
 
-type Mapper struct {
-	mapping map[string]string
-	lock    sync.Mutex
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func insertMapping(ctx context.Context, db *pgxpool.Pool, key, originalURL string) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO urls (short_key, original_url)
+		VALUES ($1, $2)
+	`, key, originalURL)
+
+	return err
 }
 
-var urlMapper = newMapper()
+func fetchMapping(ctx context.Context, db *pgxpool.Pool, key string) (string, bool, error) {
+	var originalURL string
 
-func newMapper() Mapper {
-	return Mapper{
-		mapping: make(map[string]string),
-		lock:    sync.Mutex{},
+	err := db.QueryRow(ctx, `
+		SELECT original_url
+		FROM urls
+		WHERE short_key = $1
+	`, key).Scan(&originalURL)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+
+		return "", false, err
 	}
+
+	return originalURL, true, nil
 }
 
-func insertMapping(key, originalURL string) {
-	urlMapper.lock.Lock()
-	defer urlMapper.lock.Unlock()
+func incrementClickCount(ctx context.Context, db *pgxpool.Pool, key string) error {
+	_, err := db.Exec(ctx, `
+		UPDATE urls
+		SET click_count = click_count + 1
+		WHERE short_key = $1
+	`, key)
 
-	urlMapper.mapping[key] = originalURL
-}
-
-func fetchMapping(key string) (string, bool) {
-	urlMapper.lock.Lock()
-	defer urlMapper.lock.Unlock()
-
-	originalURL, exists := urlMapper.mapping[key]
-	return originalURL, exists
+	return err
 }
