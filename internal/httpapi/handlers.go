@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"urlShortener/internal/storage"
 	"urlShortener/internal/urlutil"
@@ -26,8 +27,15 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-type healthResponse struct {
+type HealthResponse struct {
 	Status string `json:"status"`
+}
+
+type StatsResponse struct {
+	ShortKey    string    `json:"short_key"`
+	OriginalURL string    `json:"original_url"`
+	ClickCount  int64     `json:"click_count"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 func writeErrorResponse(w http.ResponseWriter, statusCode int, message string) {
@@ -45,19 +53,6 @@ func writeErrorResponse(w http.ResponseWriter, statusCode int, message string) {
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hello, World!"))
-}
-
-func (app *App) healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	response := healthResponse{
-		Status: "ok",
-	}
-
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Failed to encode health response: %v", err)
-	}
 }
 
 func (app *App) createShortURLHandler(w http.ResponseWriter, r *http.Request) {
@@ -140,4 +135,72 @@ func (app *App) redirectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, url, http.StatusFound)
+}
+
+func (app *App) healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	response := HealthResponse{
+		Status: "ok",
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode health response: %v", err)
+	}
+}
+
+func (app *App) readyHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := app.store.Ping(r.Context()); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		response := HealthResponse{
+			Status: "not ready",
+		}
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("Failed to encode readiness response: %v", err)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	response := HealthResponse{
+		Status: "ready",
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode readiness response: %v", err)
+	}
+}
+
+func (app *App) statsHandler(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "key")
+	if key == "" {
+		writeErrorResponse(w, http.StatusBadRequest, "Key is required")
+		return
+	}
+
+	stats, exists, err := app.store.GetStats(r.Context(), key)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, "Failed to fetch stats")
+		return
+	}
+
+	if !exists {
+		writeErrorResponse(w, http.StatusNotFound, "Stats not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	response := StatsResponse{
+		ShortKey:    stats.ShortKey,
+		OriginalURL: stats.OriginalURL,
+		ClickCount:  stats.ClickCount,
+		CreatedAt:   stats.CreatedAt,
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode stats response: %v", err)
+	}
 }

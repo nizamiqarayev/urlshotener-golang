@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -11,6 +12,13 @@ import (
 
 type Store struct {
 	db *pgxpool.Pool
+}
+
+type URLStats struct {
+	ShortKey    string
+	OriginalURL string
+	ClickCount  int64
+	CreatedAt   time.Time
 }
 
 func NewStore(db *pgxpool.Pool) *Store {
@@ -63,4 +71,27 @@ func IsUniqueViolation(err error) bool {
 	}
 
 	return false
+}
+
+func (store *Store) Ping(ctx context.Context) error {
+	return store.db.Ping(ctx)
+}
+
+func (store *Store) GetStats(ctx context.Context, key string) (*URLStats, bool, error) {
+	var stats URLStats
+
+	err := store.db.QueryRow(ctx, `
+		SELECT short_key, original_url, click_count, created_at
+		FROM urls
+		WHERE short_key = $1
+	`, key).Scan(&stats.ShortKey, &stats.OriginalURL, &stats.ClickCount, &stats.CreatedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	return &stats, true, nil
 }

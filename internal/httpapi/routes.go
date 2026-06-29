@@ -25,6 +25,8 @@ func NewRouter(db *pgxpool.Pool, baseURL string) http.Handler {
 	r.Get("/healthz", app.healthHandler)
 	r.Post("/shorten", app.createShortURLHandler)
 	r.Get("/short/{key}", app.redirectHandler)
+	r.Get("/ready", app.readyHandler)
+	r.Get("/stats/{key}", app.statsHandler)
 
 	return r
 }
